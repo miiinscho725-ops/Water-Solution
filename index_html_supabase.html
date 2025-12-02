@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Water Solution Research Platform</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body {
+      box-sizing: border-box;
+      margin: 0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    .fade-in {
+      animation: fadeIn 0.3s ease-in;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .slide-in {
+      animation: slideIn 0.3s ease-out;
+    }
+    @keyframes slideIn {
+      from { 
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to { 
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 via-white to-emerald-50">
+  <div id="app"></div>
+  
+  <script>
+    // ========== Supabase 초기화 ==========
+    // 환경 변수 또는 직접 입력
+    const SUPABASE_URL = 'https://bpwjkgrmzpxppubjaisz.supabase.co'; // 여기에 Supabase URL 입력
+    const SUPABASE_ANON_KEY = 'sb_publishable_6lO03_v4mOOTHC4xG4RqQA_2MXt8RVE'; // 여기에 Supabase Anon Key 입력
+    
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // ========== Configuration ==========
+    const config = {
+      site_title: "Water Solution",
+      site_tagline: "Solving Water Pollution Problems",
+      primary_color: "#047857",
+      accent_color: "#0891b2",
+      button_color: "#059669",
+      surface_color: "#ffffff",
+      text_color: "#1f2937"
+    };
+
+    // ========== State Management ==========
+    let currentLang = 'kr';
+    let currentView = 'home';
+    let selectedMethod = null;
+    let selectedProject = null;
+    let editingProject = false;
+    let projects = [];
+    let isLoading = false;
+
+    // ========== Database Functions ==========
+    async function loadProjects() {
+      try {
+        isLoading = true;
+        render();
+        
+        const { data, error } = await supabase
+          .from('projects')
+          .select('*')
+          .order('date', { ascending: false });
+
+        if (error) throw error;
+        
+        projects = data.map(p => ({
+          id: p.id,
+          title: p.title,
+          author: p.author,
+          date: p.date,
+          views: p.views,
+          status: p.status,
+          content: p.content,
+          imageUrl: p.image_url || '',
+          pdfUrl: p.pdf_url || ''
+        }));
+        
+        isLoading = false;
+        render();
+      } catch (error) {
+        console.error('프로젝트 로드 실패:', error);
+        showToast(t('데이터 로드에 실패했습니다', 'Failed to load data'), 'error');
+        isLoading = false;
+      }
+    }
+
+    async function createProject(project) {
+      try {
+        const { data, error } = await supabase
+          .from('projects')
+          .insert([{
+            id: project.id,
+            title: project.title,
+            author: project.author,
+            date: project.date,
+            views: project.views,
+            status: project.status,
+            content: project.content,
+            image_url: project.imageUrl,
+            pdf_url: project.pdfUrl
+          }])
+          .select();
+
+        if (error) throw error;
+        
+        await loadProjects();
+        showToast(t('프로젝트가 저장되었습니다', 'Project has been saved'), 'success');
+      } catch (error) {
+        console.error('프로젝트 생성 실패:', error);
+        showToast(t('저장에 실패했습니다', 'Failed to save'), 'error');
+      }
+    }
+
+    async function updateProject(id, updates) {
+      try {
+        const { error } = await supabase
+          .from('projects')
+          .update({
+            title: updates.title,
+            author: updates.author,
+            date: updates.date,
+            views: updates.views,
+            status: updates.status,
+            content: updates.content,
+            image_url: updates.imageUrl,
+            pdf_url: updates.pdfUrl,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', id);
+
+        if (error) throw error;
+        
+        await loadProjects();
+        showToast(t('변경사항이 저장되었습니다', 'Changes have been saved'), 'success');
+      } catch (error) {
+        console.error('프로젝트 업데이트 실패:', error);
+        showToast(t('업데이트에 실패했습니다', 'Failed to update'), 'error');
+      }
+    }
+
+    async function incrementViews(id) {
+      try {
+        const project = projects.find(p => p.id === id);
+        if (!project) return;
+        
+        const { error } = await supabase
+          .from('projects')
+          .update({ views: project.views + 1 })
+          .eq('id', id);
+
+        if (error) throw error;
+      } catch (error) {
+        console.error('조회수 업데이트 실패:', error);
+      }
+    }
+
+    // ========== Helper Functions ==========
+    function t(kr, en) {
+      return currentLang === 'kr' ? kr : en;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text || '';
+      return div.innerHTML;
+    }
+
+    // ========== Toast Notifications ==========
+    function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      const colors = {
+        success: 'bg-emerald-600',
+        error: 'bg-red-600',
+        info: 'bg-blue-600'
+      };
+      
+      toast.className = `fixed bottom-6 right-6 ${colors[type]} text-white px-6 py-3 rounded-lg shadow-lg z-50 fade-in`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    // ========== Navigation Functions ==========
+    window.navigateTo = function(view) {
+      currentView = view;
+      selectedMethod = null;
+      selectedProject = null;
+      editingProject = false;
+      render();
+    };
+
+    window.switchLang = function() {
+      currentLang = currentLang === 'kr' ? 'en' : 'kr';
+      render();
+    };
+
+    window.viewProjectDetail = async function(id) {
+      selectedProject = id;
+      await incrementViews(id);
+      await loadProjects();
+      render();
+    };
+
+    window.clearProjectSelection = function() {
+      selectedProject = null;
+      editingProject = false;
+      render();
+    };
+
+    window.startProjectEdit = function() {
+      editingProject = true;
+      render();
+    };
+
+    window.cancelProjectEdit = function() {
+      editingProject = false;
+      render();
+    };
+
+    // ========== Render Navigation ==========
+    function renderNav() {
+      return `
+        <nav class="w-full shadow-sm" style="background: ${config.surface_color};">
+          <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+            <h1 class="text-2xl font-bold cursor-pointer hover:opacity-80 transition" onclick="navigateTo('home')" style="color: ${config.primary_color};">
+              ${escapeHtml(config.site_title)}
+            </h1>
+            <div class="flex gap-6 items-center">
+              <button onclick="navigateTo('home')" class="hover:opacity-70 transition font-medium text-sm" style="color: ${currentView === 'home' ? config.primary_color : config.text_color};">
+                ${t('기관 소개', 'About')}
+              </button>
+              <button onclick="navigateTo('projects')" class="hover:opacity-70 transition font-medium text-sm" style="color: ${currentView === 'projects' ? config.primary_color : config.text_color};">
+                ${t('프로젝트', 'Projects')}
+              </button>
+              <button onclick="navigateTo('contact')" class="hover:opacity-70 transition font-medium text-sm" style="color: ${currentView === 'contact' ? config.primary_color : config.text_color};">
+                ${t('문의', 'Contact')}
+              </button>
+              <button onclick="switchLang()" class="px-4 py-2 rounded-lg transition text-sm" style="background: ${config.button_color}; color: white;">
+                ${currentLang === 'kr' ? 'EN' : '한글'}
+              </button>
+            </div>
+          </div>
+        </nav>
+      `;
+    }
+
+    // ========== Render Home Page ==========
+    function renderHomePage() {
+      return `
+        <div class="w-full min-h-screen">
+          ${renderNav()}
+          
+          <div class="w-full py-24" style="background: linear-gradient(135deg, ${config.primary_color}, ${config.accent_color});">
+            <div class="max-w-7xl mx-auto px-6 text-center">
+              <h2 class="text-5xl font-bold mb-6 text-white">
+                ${escapeHtml(config.site_tagline)}
+              </h2>
+              <p class="text-xl text-white opacity-90 mb-8">
+                ${t('혁신적인 수질 정화 기술로 더 깨끗한 미래를 만듭니다', 'Creating a cleaner future with innovative water purification technology')}
+              </p>
+            </div>
+          </div>
+
+          <div class="max-w-7xl mx-auto px-6 py-20">
+            <div class="text-center mb-16">
+              <h3 class="text-4xl font-bold mb-4" style="color: ${config.primary_color};">
+                ${t('우리 연구소를 소개합니다', 'About Our Institute')}
+              </h3>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-8 mb-16">
+              <div class="text-center p-8 rounded-xl shadow-lg" style="background: linear-gradient(135deg, ${config.primary_color}15, ${config.primary_color}05);">
+                <div class="text-5xl font-bold mb-3" style="color: ${config.primary_color};">15+</div>
+                <div class="text-lg font-semibold" style="color: ${config.text_color};">${t('협력 국가', 'Partner Countries')}</div>
+              </div>
+              <div class="text-center p-8 rounded-xl shadow-lg" style="background: linear-gradient(135deg, ${config.accent_color}15, ${config.accent_color}05);">
+                <div class="text-5xl font-bold mb-3" style="color: ${config.accent_color};">127</div>
+                <div class="text-lg font-semibold" style="color: ${config.text_color};">${t('완료된 프로젝트', 'Completed Projects')}</div>
+              </div>
+              <div class="text-center p-8 rounded-xl shadow-lg" style="background: linear-gradient(135deg, ${config.primary_color}15, ${config.primary_color}05);">
+                <div class="text-5xl font-bold mb-3" style="color: ${config.primary_color};">230+</div>
+                <div class="text-lg font-semibold" style="color: ${config.text_color};">${t('연구 논문', 'Research Papers')}</div>
+              </div>
+              <div class="text-center p-8 rounded-xl shadow-lg" style="background: linear-gradient(135deg, ${config.accent_color}15, ${config.accent_color}05);">
+                <div class="text-5xl font-bold mb-3" style="color: ${config.accent_color};">50+</div>
+                <div class="text-lg font-semibold" style="color: ${config.text_color};">${t('연구진', 'Researchers')}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // ========== Render Projects (간략 버전) ==========
+    function renderProjectsPage() {
+      if (isLoading) {
+        return `
+          <div class="w-full min-h-screen">
+            ${renderNav()}
+            <div class="max-w-6xl mx-auto px-6 py-16 text-center">
+              <p class="text-xl" style="color: ${config.primary_color};">${t('로딩 중...', 'Loading...')}</p>
+            </div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="w-full min-h-screen">
+          ${renderNav()}
+          
+          <div class="w-full py-16" style="background: linear-gradient(135deg, ${config.primary_color}, ${config.accent_color});">
+            <div class="max-w-6xl mx-auto px-6 text-center">
+              <h2 class="text-3xl font-bold mb-4 text-white">
+                ${t('프로젝트', 'Projects')}
+              </h2>
+            </div>
+          </div>
+
+          <div class="max-w-6xl mx-auto px-6 py-16">
+            <div class="space-y-4">
+              ${projects.map(project => `
+                <div onclick="viewProjectDetail('${project.id}')" class="rounded-2xl shadow-lg p-6 cursor-pointer hover:shadow-xl transition" style="background: ${config.surface_color};">
+                  <div class="flex justify-between items-center">
+                    <div class="flex items-center gap-4 flex-1">
+                      <span class="px-3 py-1 rounded-full text-sm font-semibold" style="background: ${project.status === 'completed' ? '#10b981' : '#f59e0b'}20; color: ${project.status === 'completed' ? '#10b981' : '#f59e0b'};">
+                        ${project.status === 'completed' ? t('완료', 'Completed') : t('진행중', 'Ongoing')}
+                      </span>
+                      <h3 class="text-2xl font-bold" style="color: ${config.primary_color};">
+                        ${escapeHtml(project.title)}
+                      </h3>
+                    </div>
+                    <div class="flex gap-6 items-center">
+                      <span class="text-base">👤 ${escapeHtml(project.author)}</span>
+                      <span class="text-base">📅 ${escapeHtml(project.date)}</span>
+                      <span class="text-base">👁️ ${project.views}</span>
+                    </div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // ========== Render Contact ==========
+    function renderContactPage() {
+      return `
+        <div class="w-full min-h-screen">
+          ${renderNav()}
+          
+          <div class="w-full py-20" style="background: linear-gradient(135deg, ${config.primary_color}, ${config.accent_color});">
+            <div class="max-w-6xl mx-auto px-6 text-center">
+              <h2 class="text-4xl font-bold mb-4 text-white">
+                ${t('문의하기', 'Contact Us')}
+              </h2>
+            </div>
+          </div>
+
+          <div class="max-w-4xl mx-auto px-6 py-16">
+            <div class="rounded-xl shadow-lg p-8" style="background: ${config.surface_color};">
+              <h3 class="text-2xl font-bold mb-6" style="color: ${config.primary_color};">
+                Email: contact@watersolution.org
+              </h3>
+              <p>Phone: +82-2-1234-5678</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // ========== Main Render Function ==========
+    function render() {
+      const app = document.getElementById('app');
+      
+      if (currentView === 'home') {
+        app.innerHTML = renderHomePage();
+      } else if (currentView === 'projects') {
+        app.innerHTML = renderProjectsPage();
+      } else if (currentView === 'contact') {
+        app.innerHTML = renderContactPage();
+      }
+    }
+
+    // ========== Initialize ==========
+    loadProjects().then(() => render());
+  </script>
+</body>
+</html>
