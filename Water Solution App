@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="ko">
 <head>
@@ -5,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Water Solution Research Platform</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     body {
       box-sizing: border-box;
@@ -40,6 +42,13 @@
   <div id="app"></div>
   
   <script>
+    // ========== Supabase 초기화 ==========
+    // 환경 변수 또는 직접 입력
+    const SUPABASE_URL = 'https://bpwjkgrmzpxppubjaisz.supabase.co'; // 여기에 Supabase URL 입력
+    const SUPABASE_ANON_KEY = 'sb_publishable_6lO03_v4mOOTHC4xG4RqQA_2MXt8RVE'; // 여기에 Supabase Anon Key 입력
+    
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
     // ========== Configuration ==========
     const config = {
       site_title: "Water Solution",
@@ -57,32 +66,112 @@
     let selectedMethod = null;
     let selectedProject = null;
     let editingProject = false;
-    let editingMethod = null;
-    
-    let projects = [
-      {
-        id: 'proj_1',
-        title: '하천 수질 개선 프로젝트',
-        author: '김연구',
-        date: '2024-01-15',
-        views: 127,
-        status: 'completed',
-        content: '본 프로젝트는 도심 하천의 수질 개선을 목표로 진행되었습니다. 생물학적 처리와 고급산화 공정을 결합하여 COD 제거율 85% 이상을 달성하였으며, 영양염류 제거에도 탁월한 효과를 보였습니다.\n\n주요 성과:\n- COD 제거율: 85% 이상\n- 총질소 제거율: 78%\n- 총인 제거율: 92%\n\n본 연구 결과는 실제 하천 수질 개선 사업에 적용될 예정입니다.',
-        imageUrl: 'https://images.unsplash.com/photo-1569163139394-de4798aa62b6?w=800',
-        pdfUrl: ''
-      },
-      {
-        id: 'proj_2',
-        title: '산업폐수 처리 기술 개발',
-        author: '이박사',
-        date: '2024-02-20',
-        views: 95,
-        status: 'ongoing',
-        content: '섬유 산업폐수의 색도 제거를 위한 흡착-산화 결합 공정을 개발하고 있습니다. 활성탄 흡착 후 오존 처리를 통해 색도 95% 이상 제거에 성공하였습니다.\n\n현재 진행 상황:\n- 실험실 규모 테스트 완료\n- 파일럿 플랜트 설계 진행 중\n- 2024년 4월 파일럿 테스트 예정',
-        imageUrl: '',
-        pdfUrl: ''
+    let projects = [];
+    let isLoading = false;
+
+    // ========== Database Functions ==========
+    async function loadProjects() {
+      try {
+        isLoading = true;
+        render();
+        
+        const { data, error } = await supabase
+          .from('projects')
+          .select('*')
+          .order('date', { ascending: false });
+
+        if (error) throw error;
+        
+        projects = data.map(p => ({
+          id: p.id,
+          title: p.title,
+          author: p.author,
+          date: p.date,
+          views: p.views,
+          status: p.status,
+          content: p.content,
+          imageUrl: p.image_url || '',
+          pdfUrl: p.pdf_url || ''
+        }));
+        
+        isLoading = false;
+        render();
+      } catch (error) {
+        console.error('프로젝트 로드 실패:', error);
+        showToast(t('데이터 로드에 실패했습니다', 'Failed to load data'), 'error');
+        isLoading = false;
       }
-    ];
+    }
+
+    async function createProject(project) {
+      try {
+        const { data, error } = await supabase
+          .from('projects')
+          .insert([{
+            id: project.id,
+            title: project.title,
+            author: project.author,
+            date: project.date,
+            views: project.views,
+            status: project.status,
+            content: project.content,
+            image_url: project.imageUrl,
+            pdf_url: project.pdfUrl
+          }])
+          .select();
+
+        if (error) throw error;
+        
+        await loadProjects();
+        showToast(t('프로젝트가 저장되었습니다', 'Project has been saved'), 'success');
+      } catch (error) {
+        console.error('프로젝트 생성 실패:', error);
+        showToast(t('저장에 실패했습니다', 'Failed to save'), 'error');
+      }
+    }
+
+    async function updateProject(id, updates) {
+      try {
+        const { error } = await supabase
+          .from('projects')
+          .update({
+            title: updates.title,
+            author: updates.author,
+            date: updates.date,
+            views: updates.views,
+            status: updates.status,
+            content: updates.content,
+            image_url: updates.imageUrl,
+            pdf_url: updates.pdfUrl,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', id);
+
+        if (error) throw error;
+        
+        await loadProjects();
+        showToast(t('변경사항이 저장되었습니다', 'Changes have been saved'), 'success');
+      } catch (error) {
+        console.error('프로젝트 업데이트 실패:', error);
+        showToast(t('업데이트에 실패했습니다', 'Failed to update'), 'error');
+      }
+    }
+
+    async function incrementViews(id) {
+      try {
+        const project = projects.find(p => p.id === id);
+        if (!project) return;
+        
+        const { error } = await supabase
+          .from('projects')
+          .update({ views: project.views + 1 })
+          .eq('id', id);
+
+        if (error) throw error;
+      } catch (error) {
+        console.error('조회수 업데이트 실패:', error);
+      }
+    }
 
     // ========== Helper Functions ==========
     function t(kr, en) {
@@ -129,40 +218,10 @@
       render();
     };
 
-    window.viewMethodDetail = function(sectorId, methodId) {
-      selectedMethod = { sectorId, methodId };
-      render();
-    };
-
-    window.clearMethodSelection = function() {
-      selectedMethod = null;
-      editingMethod = false;
-      render();
-    };
-
-    window.startMethodEdit = function() {
-      editingMethod = true;
-      render();
-    };
-
-    window.cancelMethodEdit = function() {
-      editingMethod = false;
-      render();
-    };
-
-    window.saveMethodEdit = function(event) {
-      event.preventDefault();
-      showToast(t('변경사항이 저장되었습니다', 'Changes have been saved'), 'success');
-      editingMethod = false;
-      render();
-    };
-
-    window.viewProjectDetail = function(id) {
+    window.viewProjectDetail = async function(id) {
       selectedProject = id;
-      const projectIndex = projects.findIndex(p => p.id === id);
-      if (projectIndex !== -1) {
-        projects[projectIndex].views += 1;
-      }
+      await incrementViews(id);
+      await loadProjects();
       render();
     };
 
@@ -194,9 +253,6 @@
               <button onclick="navigateTo('home')" class="hover:opacity-70 transition font-medium text-sm" style="color: ${currentView === 'home' ? config.primary_color : config.text_color};">
                 ${t('기관 소개', 'About')}
               </button>
-              <button onclick="navigateTo('research_areas')" class="hover:opacity-70 transition font-medium text-sm" style="color: ${currentView === 'research_areas' ? config.primary_color : config.text_color};">
-                ${t('연구 분야', 'Research Areas')}
-              </button>
               <button onclick="navigateTo('projects')" class="hover:opacity-70 transition font-medium text-sm" style="color: ${currentView === 'projects' ? config.primary_color : config.text_color};">
                 ${t('프로젝트', 'Projects')}
               </button>
@@ -218,7 +274,6 @@
         <div class="w-full min-h-screen">
           ${renderNav()}
           
-          <!-- Hero Section -->
           <div class="w-full py-24" style="background: linear-gradient(135deg, ${config.primary_color}, ${config.accent_color});">
             <div class="max-w-7xl mx-auto px-6 text-center">
               <h2 class="text-5xl font-bold mb-6 text-white">
@@ -227,161 +282,32 @@
               <p class="text-xl text-white opacity-90 mb-8">
                 ${t('혁신적인 수질 정화 기술로 더 깨끗한 미래를 만듭니다', 'Creating a cleaner future with innovative water purification technology')}
               </p>
-              <div class="flex gap-4 justify-center">
-                <button onclick="navigateTo('research_areas')" class="px-8 py-4 rounded-lg font-semibold transition shadow-lg hover:shadow-xl" style="background: white; color: ${config.primary_color};">
-                  ${t('연구 분야 보기', 'View Research')}
-                </button>
-                <button onclick="navigateTo('contact')" class="px-8 py-4 rounded-lg font-semibold transition border-2 border-white text-white hover:bg-white" style="hover:color: ${config.primary_color};">
-                  ${t('문의하기', 'Contact Us')}
-                </button>
-              </div>
             </div>
           </div>
 
-          <!-- About Section -->
           <div class="max-w-7xl mx-auto px-6 py-20">
             <div class="text-center mb-16">
               <h3 class="text-4xl font-bold mb-4" style="color: ${config.primary_color};">
                 ${t('우리 연구소를 소개합니다', 'About Our Institute')}
               </h3>
-              <p class="text-lg opacity-70" style="color: ${config.text_color};">
-                ${t('수질 개선과 환경 보호를 위한 선도적 연구 기관', 'Leading research institution for water quality improvement and environmental protection')}
-              </p>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-12 mb-16">
-              <div class="rounded-2xl shadow-lg p-8" style="background: ${config.surface_color};">
-                <div class="text-4xl mb-4">🎯</div>
-                <h4 class="text-2xl font-bold mb-4" style="color: ${config.primary_color};">
-                  ${t('우리의 미션', 'Our Mission')}
-                </h4>
-                <p class="text-base leading-relaxed" style="color: ${config.text_color};">
-                  ${t(
-                    '과학적 연구와 기술 혁신을 통해 전 세계 수자원의 지속 가능한 관리에 기여하고, 깨끗한 물에 대한 접근성을 향상시킵니다.',
-                    'Contributing to sustainable management of global water resources through scientific research and technological innovation, improving access to clean water.'
-                  )}
-                </p>
-              </div>
-
-              <div class="rounded-2xl shadow-lg p-8" style="background: ${config.surface_color};">
-                <div class="text-4xl mb-4">🔭</div>
-                <h4 class="text-2xl font-bold mb-4" style="color: ${config.primary_color};">
-                  ${t('우리의 비전', 'Our Vision')}
-                </h4>
-                <p class="text-base leading-relaxed" style="color: ${config.text_color};">
-                  ${t(
-                    '2030년까지 아시아-태평양 지역 최고의 수질 연구 기관이 되어, 기후 변화와 인구 증가로 인한 물 부족 문제 해결의 선두주자가 되겠습니다.',
-                    'To become the leading water quality research institution in the Asia-Pacific region by 2030, pioneering solutions to water scarcity caused by climate change and population growth.'
-                  )}
-                </p>
-              </div>
-            </div>
-
-            <!-- Statistics -->
             <div class="grid grid-cols-1 md:grid-cols-4 gap-8 mb-16">
               <div class="text-center p-8 rounded-xl shadow-lg" style="background: linear-gradient(135deg, ${config.primary_color}15, ${config.primary_color}05);">
                 <div class="text-5xl font-bold mb-3" style="color: ${config.primary_color};">15+</div>
                 <div class="text-lg font-semibold" style="color: ${config.text_color};">${t('협력 국가', 'Partner Countries')}</div>
-                <p class="text-sm mt-2 opacity-70" style="color: ${config.text_color};">${t('글로벌 네트워크', 'Global Network')}</p>
               </div>
               <div class="text-center p-8 rounded-xl shadow-lg" style="background: linear-gradient(135deg, ${config.accent_color}15, ${config.accent_color}05);">
                 <div class="text-5xl font-bold mb-3" style="color: ${config.accent_color};">127</div>
                 <div class="text-lg font-semibold" style="color: ${config.text_color};">${t('완료된 프로젝트', 'Completed Projects')}</div>
-                <p class="text-sm mt-2 opacity-70" style="color: ${config.text_color};">${t('성공적인 수행', 'Successfully Executed')}</p>
               </div>
               <div class="text-center p-8 rounded-xl shadow-lg" style="background: linear-gradient(135deg, ${config.primary_color}15, ${config.primary_color}05);">
                 <div class="text-5xl font-bold mb-3" style="color: ${config.primary_color};">230+</div>
                 <div class="text-lg font-semibold" style="color: ${config.text_color};">${t('연구 논문', 'Research Papers')}</div>
-                <p class="text-sm mt-2 opacity-70" style="color: ${config.text_color};">${t('학술 기여', 'Academic Contributions')}</p>
               </div>
               <div class="text-center p-8 rounded-xl shadow-lg" style="background: linear-gradient(135deg, ${config.accent_color}15, ${config.accent_color}05);">
-                <div class="text-5xl font-bold mb-3" style="color: ${config.accent_color};">5+</div>
+                <div class="text-5xl font-bold mb-3" style="color: ${config.accent_color};">50+</div>
                 <div class="text-lg font-semibold" style="color: ${config.text_color};">${t('연구진', 'Researchers')}</div>
-                <p class="text-sm mt-2 opacity-70" style="color: ${config.text_color};">${t('전문 인력', 'Expert Team')}</p>
-              </div>
-            </div>
-
-            <!-- Key Achievements -->
-            <div class="rounded-2xl shadow-lg p-10 mb-16" style="background: ${config.surface_color};">
-              <h3 class="text-3xl font-bold mb-8 text-center" style="color: ${config.primary_color};">
-                ${t('주요 성과', 'Key Achievements')}
-              </h3>
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <div class="p-6 rounded-xl border-l-4" style="background: ${config.primary_color}05; border-color: ${config.primary_color};">
-                  <div class="text-5xl mb-4">🌍</div>
-                  <h4 class="text-xl font-bold mb-3" style="color: ${config.accent_color};">
-                    ${t('글로벌 협력', 'Global Collaboration')}
-                  </h4>
-                  <p class="leading-relaxed" style="color: ${config.text_color};">
-                    ${t(
-                      '아시아, 유럽, 아프리카 15개국 이상의 연구 기관 및 정부와 수질 개선 프로젝트를 진행하고 있습니다.',
-                      'Conducting water quality improvement projects with research institutions and governments in over 15 countries across Asia, Europe, and Africa.'
-                    )}
-                  </p>
-                </div>
-
-                <div class="p-6 rounded-xl border-l-4" style="background: ${config.accent_color}05; border-color: ${config.accent_color};">
-                  <div class="text-5xl mb-4">🔬</div>
-                  <h4 class="text-xl font-bold mb-3" style="color: ${config.accent_color};">
-                    ${t('혁신 기술', 'Innovative Technology')}
-                  </h4>
-                  <p class="leading-relaxed" style="color: ${config.text_color};">
-                    ${t(
-                      '고급산화, 생물학적 처리, 흡착 공정 등 최첨단 수처리 기술을 개발하여 난분해성 오염물질 제거율 95% 이상을 달성했습니다.',
-                      'Developed cutting-edge water treatment technologies including advanced oxidation, biological treatment, and adsorption processes, achieving over 95% removal of refractory pollutants.'
-                    )}
-                  </p>
-                </div>
-
-                <div class="p-6 rounded-xl border-l-4" style="background: ${config.primary_color}05; border-color: ${config.primary_color};">
-                  <div class="text-5xl mb-4">🏆</div>
-                  <h4 class="text-xl font-bold mb-3" style="color: ${config.accent_color};">
-                    ${t('국제 인정', 'International Recognition')}
-                  </h4>
-                  <p class="leading-relaxed" style="color: ${config.text_color};">
-                    ${t(
-                      'ISO 17025 인증 획득 및 국제 학술지에 230편 이상의 논문을 게재하며, 수질 분석 분야의 선도적 연구 기관으로 인정받고 있습니다.',
-                      'Recognized as a leading research institution in water quality analysis with ISO 17025 certification and over 230 papers published in international journals.'
-                    )}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <!-- Research Focus -->
-            <div class="rounded-2xl shadow-lg p-10" style="background: linear-gradient(135deg, ${config.primary_color}10, ${config.accent_color}10);">
-              <h3 class="text-3xl font-bold mb-8 text-center" style="color: ${config.primary_color};">
-                ${t('연구 중점 분야', 'Research Focus Areas')}
-              </h3>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="flex gap-4 p-4 rounded-lg" style="background: ${config.surface_color};">
-                  <div class="text-3xl">💧</div>
-                  <div>
-                    <h5 class="font-bold mb-2" style="color: ${config.primary_color};">${t('수질 특성 분석', 'Water Quality Analysis')}</h5>
-                    <p class="text-sm" style="color: ${config.text_color};">${t('BOD, COD, 영양염류, 중금속 등 정밀 측정', 'Precise measurement of BOD, COD, nutrients, heavy metals')}</p>
-                  </div>
-                </div>
-                <div class="flex gap-4 p-4 rounded-lg" style="background: ${config.surface_color};">
-                  <div class="text-3xl">🧪</div>
-                  <div>
-                    <h5 class="font-bold mb-2" style="color: ${config.primary_color};">${t('고급 수처리 기술', 'Advanced Treatment')}</h5>
-                    <p class="text-sm" style="color: ${config.text_color};">${t('생물학적 처리, 응집, 흡착, 고급산화', 'Biological treatment, coagulation, adsorption, AOP')}</p>
-                  </div>
-                </div>
-                <div class="flex gap-4 p-4 rounded-lg" style="background: ${config.surface_color};">
-                  <div class="text-3xl">🌱</div>
-                  <div>
-                    <h5 class="font-bold mb-2" style="color: ${config.primary_color};">${t('지속가능 수자원 관리', 'Sustainable Management')}</h5>
-                    <p class="text-sm" style="color: ${config.text_color};">${t('기후변화 대응 및 물 순환 시스템', 'Climate change adaptation and water cycle systems')}</p>
-                  </div>
-                </div>
-                <div class="flex gap-4 p-4 rounded-lg" style="background: ${config.surface_color};">
-                  <div class="text-3xl">🔍</div>
-                  <div>
-                    <h5 class="font-bold mb-2" style="color: ${config.primary_color};">${t('신규 오염물질 연구', 'Emerging Contaminants')}</h5>
-                    <p class="text-sm" style="color: ${config.text_color};">${t('미세플라스틱, 의약품, 내분비계 교란물질', 'Microplastics, pharmaceuticals, endocrine disruptors')}</p>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -389,483 +315,19 @@
       `;
     }
 
-    // ========== Render Research Areas ==========
-    function renderResearchAreasPage() {
-      const researchSectors = [
-        {
-          id: 'characterization',
-          title: { kr: '수질 특성 분석', en: 'Water Quality Characterization' },
-          methods: [
-            {
-              id: 'bod_cod',
-              name: { kr: 'BOD/COD 측정', en: 'BOD/COD Measurement' },
-              description: { 
-                kr: '수중 유기물 함량을 정량화하여 오염 정도를 평가합니다.',
-                en: 'Quantify organic matter content in water to assess pollution levels.'
-              },
-              details: {
-                kr: 'BOD(생화학적 산소 요구량)는 5일간 미생물의 산소 소비량을 측정하며, COD(화학적 산소 요구량)는 강산화제로 산화 가능한 물질량을 측정합니다.',
-                en: 'BOD measures microbial oxygen consumption over 5 days, while COD measures oxidizable substances using strong oxidizing agents.'
-              }
-            },
-            {
-              id: 'nutrients',
-              name: { kr: '영양염류 분석', en: 'Nutrient Analysis' },
-              description: { 
-                kr: '질소(N)와 인(P) 농도를 측정하여 부영양화 위험을 평가합니다.',
-                en: 'Measure nitrogen (N) and phosphorus (P) concentrations to assess eutrophication risk.'
-              },
-              details: {
-                kr: '총질소(TN)는 자외선 흡광도법, 총인(TP)은 아스코르빈산 환원법으로 분석합니다.',
-                en: 'Total nitrogen (TN) is analyzed by UV spectrophotometry, total phosphorus (TP) by ascorbic acid reduction method.'
-              }
-            },
-            {
-              id: 'suspended_solids',
-              name: { kr: '부유물질 측정', en: 'Suspended Solids Measurement' },
-              description: { 
-                kr: '수중 부유 입자의 양을 정량하여 탁도 원인을 파악합니다.',
-                en: 'Quantify suspended particles in water to identify causes of turbidity.'
-              },
-              details: {
-                kr: '일정량의 시료를 여과지로 여과한 후 건조·항량하여 부유물질(SS) 농도를 산출합니다.',
-                en: 'Filter a fixed volume of sample through filter paper, then dry and weigh to calculate SS concentration.'
-              }
-            },
-            {
-              id: 'heavy_metals',
-              name: { kr: '중금속 분석', en: 'Heavy Metal Analysis' },
-              description: { 
-                kr: '납, 카드뮴, 수은 등 유해 중금속 농도를 측정합니다.',
-                en: 'Measure concentrations of toxic heavy metals like lead, cadmium, and mercury.'
-              },
-              details: {
-                kr: 'ICP-MS 또는 원자흡광광도법으로 미량 중금속을 정밀 분석합니다.',
-                en: 'Precisely analyze trace heavy metals using ICP-MS or atomic absorption spectrophotometry.'
-              }
-            }
-          ]
-        },
-        {
-          id: 'treatment',
-          title: { kr: '오염 물질 처리', en: 'Pollutant Treatment' },
-          methods: [
-            {
-              id: 'biological',
-              name: { kr: '생물학적 처리', en: 'Biological Treatment' },
-              description: { 
-                kr: '미생물을 이용해 유기물과 영양염류를 제거합니다.',
-                en: 'Remove organic matter and nutrients using microorganisms.'
-              },
-              details: {
-                kr: '활성슬러지법, 생물막법(MBBR) 등을 실험실 규모 반응조에서 운전합니다.',
-                en: 'Operate activated sludge, biofilm (MBBR) processes in lab-scale reactors.'
-              }
-            },
-            {
-              id: 'coagulation',
-              name: { kr: '응집·침전', en: 'Coagulation-Sedimentation' },
-              description: { 
-                kr: '입자성 물질과 콜로이드를 응집시켜 침전 제거합니다.',
-                en: 'Aggregate particulate matter and colloids for sedimentation removal.'
-              },
-              details: {
-                kr: '황산알루미늄, 염화철 등 응집제를 투입하고 jar-test를 통해 최적 조건을 도출합니다.',
-                en: 'Add coagulants like aluminum sulfate and ferric chloride, determining optimal conditions through jar tests.'
-              }
-            },
-            {
-              id: 'adsorption',
-              name: { kr: '흡착', en: 'Adsorption' },
-              description: { 
-                kr: '활성탄이나 흡착제를 이용해 난분해성 유기물을 제거합니다.',
-                en: 'Remove refractory organic compounds using activated carbon or adsorbents.'
-              },
-              details: {
-                kr: '분말·입상활성탄, 이온교환수지 등 다양한 흡착제를 평가합니다.',
-                en: 'Evaluate various adsorbents including powdered/granular activated carbon and ion exchange resins.'
-              }
-            },
-            {
-              id: 'oxidation',
-              name: { kr: '고급산화', en: 'Advanced Oxidation' },
-              description: { 
-                kr: '강력한 산화력으로 난분해성 유기물을 분해합니다.',
-                en: 'Decompose refractory organic compounds with strong oxidation power.'
-              },
-              details: {
-                kr: '오존, 과산화수소, UV 조사 등을 조합하여 OH 라디칼을 생성시킵니다.',
-                en: 'Generate OH radicals using ozone, hydrogen peroxide, UV irradiation in combination.'
-              }
-            }
-          ]
-        }
-      ];
-
-      if (selectedMethod) {
-        let method = null;
-        let sectorTitle = '';
-        
-        for (const sector of researchSectors) {
-          if (selectedMethod.sectorId === sector.id) {
-            sectorTitle = currentLang === 'kr' ? sector.title.kr : sector.title.en;
-            method = sector.methods.find(m => m.id === selectedMethod.methodId);
-            break;
-          }
-        }
-
-        if (!method) {
-          selectedMethod = null;
-          return renderResearchAreasPage();
-        }
-
-        if (editingMethod) {
-          return `
-            <div class="w-full min-h-screen">
-              ${renderNav()}
-              
-              <div class="max-w-4xl mx-auto px-6 py-8">
-                <button onclick="cancelMethodEdit()" class="flex items-center gap-2 mb-6 hover:opacity-70 transition text-sm" style="color: ${config.accent_color};">
-                  <span>←</span>
-                  <span>${t('취소', 'Cancel')}</span>
-                </button>
-                
-                <div class="rounded-2xl shadow-lg p-8" style="background: ${config.surface_color};">
-                  <h2 class="text-3xl font-bold mb-6" style="color: ${config.primary_color};">
-                    ${t('연구 방법 편집', 'Edit Research Method')}
-                  </h2>
-                  
-                  <form onsubmit="saveMethodEdit(event)" class="space-y-6">
-                    <div>
-                      <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                        ${t('방법명 (한글)', 'Method Name (Korean)')}
-                      </label>
-                      <input type="text" id="edit-method-name-kr" value="${escapeHtml(method.name.kr)}" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">
-                    </div>
-
-                    <div>
-                      <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                        ${t('방법명 (영문)', 'Method Name (English)')}
-                      </label>
-                      <input type="text" id="edit-method-name-en" value="${escapeHtml(method.name.en)}" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">
-                    </div>
-
-                    <div>
-                      <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                        ${t('설명 (한글)', 'Description (Korean)')}
-                      </label>
-                      <textarea id="edit-method-desc-kr" rows="3" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">${escapeHtml(method.description.kr)}</textarea>
-                    </div>
-
-                    <div>
-                      <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                        ${t('설명 (영문)', 'Description (English)')}
-                      </label>
-                      <textarea id="edit-method-desc-en" rows="3" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">${escapeHtml(method.description.en)}</textarea>
-                    </div>
-
-                    <div>
-                      <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                        ${t('상세 내용 (한글)', 'Details (Korean)')}
-                      </label>
-                      <textarea id="edit-method-details-kr" rows="6" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">${escapeHtml(method.details.kr)}</textarea>
-                    </div>
-
-                    <div>
-                      <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                        ${t('상세 내용 (영문)', 'Details (English)')}
-                      </label>
-                      <textarea id="edit-method-details-en" rows="6" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">${escapeHtml(method.details.en)}</textarea>
-                    </div>
-
-                    <div class="flex gap-3 justify-end">
-                      <button type="button" onclick="cancelMethodEdit()" class="px-6 py-2 rounded-lg transition" style="background: #9ca3af; color: white;">
-                        ${t('취소', 'Cancel')}
-                      </button>
-                      <button type="submit" class="px-6 py-2 rounded-lg transition shadow" style="background: ${config.button_color}; color: white;">
-                        ${t('저장', 'Save')}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            </div>
-          `;
-        }
-
-        return `
-          <div class="w-full min-h-screen">
-            ${renderNav()}
-            
-            <div class="max-w-4xl mx-auto px-6 py-8">
-              <button onclick="clearMethodSelection()" class="flex items-center gap-2 mb-6 hover:opacity-70 transition text-sm" style="color: ${config.accent_color};">
-                <span>←</span>
-                <span>${t('연구 분야로 돌아가기', 'Back to Research Areas')}</span>
-              </button>
-              
-              <div class="rounded-2xl shadow-lg p-8" style="background: ${config.surface_color};">
-                <div class="flex justify-between items-start mb-6">
-                  <div>
-                    <p class="text-sm mb-2 opacity-70" style="color: ${config.accent_color};">
-                      ${escapeHtml(sectorTitle)}
-                    </p>
-                    <h2 class="text-3xl font-bold" style="color: ${config.primary_color};">
-                      ${escapeHtml(currentLang === 'kr' ? method.name.kr : method.name.en)}
-                    </h2>
-                  </div>
-                  <button onclick="startMethodEdit()" class="px-4 py-2 rounded-lg transition shadow text-sm" style="background: ${config.accent_color}; color: white;">
-                    ${t('편집', 'Edit')}
-                  </button>
-                </div>
-                
-                <div class="space-y-6">
-                  <div>
-                    <h3 class="text-xl font-semibold mb-3" style="color: ${config.accent_color};">
-                      ${t('개요', 'Overview')}
-                    </h3>
-                    <p class="text-base leading-relaxed" style="color: ${config.text_color};">
-                      ${escapeHtml(currentLang === 'kr' ? method.description.kr : method.description.en)}
-                    </p>
-                  </div>
-
-                  <div>
-                    <h3 class="text-xl font-semibold mb-3" style="color: ${config.accent_color};">
-                      ${t('상세 정보', 'Detailed Information')}
-                    </h3>
-                    <p class="text-base leading-relaxed" style="color: ${config.text_color};">
-                      ${escapeHtml(currentLang === 'kr' ? method.details.kr : method.details.en)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        `;
-      }
-
-      return `
-        <div class="w-full min-h-screen">
-          ${renderNav()}
-          
-          <div class="w-full py-16" style="background: linear-gradient(135deg, ${config.primary_color}, ${config.accent_color});">
-            <div class="max-w-6xl mx-auto px-6 text-center">
-              <h2 class="text-3xl font-bold mb-4 text-white">
-                ${t('연구 분야', 'Research Areas')}
-              </h2>
-              <p class="text-lg text-white opacity-90">
-                ${t('수질 오염 문제 해결을 위한 체계적인 연구를 수행합니다', 'We conduct systematic research to solve water pollution problems')}
-              </p>
-            </div>
-          </div>
-
-          <div class="max-w-6xl mx-auto px-6 py-16">
-            ${researchSectors.map(sector => `
-              <div class="mb-12 slide-in">
-                <h3 class="text-2xl font-bold mb-6" style="color: ${config.accent_color};">
-                  ${escapeHtml(currentLang === 'kr' ? sector.title.kr : sector.title.en)}
-                </h3>
-                
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-                  ${sector.methods.map(method => `
-                    <div onclick="viewMethodDetail('${sector.id}', '${method.id}')" class="rounded-xl shadow-lg p-6 cursor-pointer hover:shadow-xl transition" style="background: ${config.surface_color};">
-                      <h4 class="text-xl font-semibold mb-3" style="color: ${config.primary_color};">
-                        ${escapeHtml(currentLang === 'kr' ? method.name.kr : method.name.en)}
-                      </h4>
-                      <p class="text-sm opacity-80" style="color: ${config.text_color};">
-                        ${escapeHtml(currentLang === 'kr' ? method.description.kr : method.description.en)}
-                      </p>
-                      <div class="mt-4 flex items-center gap-2 text-sm" style="color: ${config.accent_color};">
-                        <span>${t('자세히 보기', 'View Details')}</span>
-                        <span>→</span>
-                      </div>
-                    </div>
-                  `).join('')}
-                </div>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      `;
-    }
-
-    // ========== Render Projects ==========
+    // ========== Render Projects (간략 버전) ==========
     function renderProjectsPage() {
-      // 프로젝트 상세보기
-      if (selectedProject) {
-        const project = projects.find(p => p.id === selectedProject);
-        
-        if (!project) {
-          selectedProject = null;
-          return renderProjectsPage();
-        }
-
-        // 편집 모드
-        if (editingProject) {
-          return `
-            <div class="w-full min-h-screen">
-              ${renderNav()}
-              
-              <div class="max-w-4xl mx-auto px-6 py-8">
-                <button onclick="cancelProjectEdit()" class="flex items-center gap-2 mb-6 hover:opacity-70 transition text-sm" style="color: ${config.accent_color};">
-                  <span>←</span>
-                  <span>${t('취소', 'Cancel')}</span>
-                </button>
-                
-                <div class="rounded-2xl shadow-lg p-8" style="background: ${config.surface_color};">
-                  <h2 class="text-3xl font-bold mb-6" style="color: ${config.primary_color};">
-                    ${t('프로젝트 편집', 'Edit Project')}
-                  </h2>
-                  
-                  <form onsubmit="saveProjectEdit(event, '${project.id}')" class="space-y-6">
-                    <div>
-                      <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                        ${t('제목', 'Title')} *
-                      </label>
-                      <input type="text" id="edit-project-title" value="${escapeHtml(project.title)}" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-4">
-                      <div>
-                        <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                          ${t('작성자', 'Author')} *
-                        </label>
-                        <input type="text" id="edit-project-author" value="${escapeHtml(project.author)}" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">
-                      </div>
-
-                      <div>
-                        <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                          ${t('날짜', 'Date')} *
-                        </label>
-                        <input type="date" id="edit-project-date" value="${escapeHtml(project.date)}" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">
-                      </div>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-4">
-                      <div>
-                        <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                          ${t('조회수', 'Views')}
-                        </label>
-                        <input type="number" id="edit-project-views" value="${project.views}" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">
-                      </div>
-
-                      <div>
-                        <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                          ${t('상태', 'Status')} *
-                        </label>
-                        <select id="edit-project-status" class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">
-                          <option value="ongoing" ${project.status === 'ongoing' ? 'selected' : ''}>${t('진행중', 'Ongoing')}</option>
-                          <option value="completed" ${project.status === 'completed' ? 'selected' : ''}>${t('완료', 'Completed')}</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                        ${t('내용', 'Content')} *
-                      </label>
-                      <textarea id="edit-project-content" rows="8" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">${escapeHtml(project.content)}</textarea>
-                    </div>
-
-                    <div>
-                      <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                        ${t('이미지 URL (선택사항)', 'Image URL (Optional)')}
-                      </label>
-                      <input type="url" id="edit-project-image" value="${escapeHtml(project.imageUrl)}" placeholder="https://example.com/image.jpg" class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">
-                    </div>
-
-                    <div>
-                      <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                        ${t('PDF URL (선택사항)', 'PDF URL (Optional)')}
-                      </label>
-                      <input type="url" id="edit-project-pdf" value="${escapeHtml(project.pdfUrl)}" placeholder="https://example.com/document.pdf" class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">
-                    </div>
-
-                    <div class="flex gap-3 justify-end">
-                      <button type="button" onclick="cancelProjectEdit()" class="px-6 py-2 rounded-lg transition" style="background: #9ca3af; color: white;">
-                        ${t('취소', 'Cancel')}
-                      </button>
-                      <button type="submit" class="px-6 py-2 rounded-lg transition shadow" style="background: ${config.button_color}; color: white;">
-                        ${t('저장', 'Save')}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            </div>
-          `;
-        }
-
-        // 상세보기 모드
+      if (isLoading) {
         return `
           <div class="w-full min-h-screen">
             ${renderNav()}
-            
-            <div class="max-w-4xl mx-auto px-6 py-8">
-              <button onclick="clearProjectSelection()" class="flex items-center gap-2 mb-6 hover:opacity-70 transition text-sm" style="color: ${config.accent_color};">
-                <span>←</span>
-                <span>${t('프로젝트 목록으로 돌아가기', 'Back to Projects')}</span>
-              </button>
-              
-              <div class="rounded-2xl shadow-lg p-8" style="background: ${config.surface_color};">
-                <div class="flex justify-between items-start mb-6">
-                  <div class="flex-1">
-                    <div class="flex items-center gap-4 mb-4">
-                      <span class="px-4 py-2 rounded-full text-base font-semibold whitespace-nowrap" style="background: ${project.status === 'completed' ? '#10b981' : '#f59e0b'}20; color: ${project.status === 'completed' ? '#10b981' : '#f59e0b'};">
-                        ${project.status === 'completed' ? t('완료', 'Completed') : t('진행중', 'Ongoing')}
-                      </span>
-                      <h2 class="text-3xl font-bold" style="color: ${config.primary_color};">
-                        ${escapeHtml(project.title)}
-                      </h2>
-                    </div>
-                    <div class="flex gap-6 items-center opacity-70" style="color: ${config.text_color};">
-                      <span class="text-base">👤 ${escapeHtml(project.author)}</span>
-                      <span class="text-base">📅 ${escapeHtml(project.date)}</span>
-                      <span class="text-base">👁️ ${project.views}</span>
-                    </div>
-                  </div>
-                  <button onclick="startProjectEdit()" class="px-4 py-2 rounded-lg transition shadow text-sm" style="background: ${config.accent_color}; color: white;">
-                    ${t('편집', 'Edit')}
-                  </button>
-                </div>
-                
-                <div class="space-y-6">
-                  <div>
-                    <h3 class="text-xl font-semibold mb-3" style="color: ${config.accent_color};">
-                      ${t('프로젝트 내용', 'Project Content')}
-                    </h3>
-                    <p class="text-base leading-relaxed whitespace-pre-wrap" style="color: ${config.text_color};">
-                      ${escapeHtml(project.content)}
-                    </p>
-                  </div>
-
-                  ${project.imageUrl ? `
-                    <div>
-                      <h3 class="text-xl font-semibold mb-3" style="color: ${config.accent_color};">
-                        ${t('프로젝트 이미지', 'Project Image')}
-                      </h3>
-                      <img src="${escapeHtml(project.imageUrl)}" alt="Project Image" class="w-full rounded-lg shadow" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                      <p style="display:none; padding: 2rem; text-align: center; color: ${config.text_color};" class="text-sm">${t('이미지를 불러올 수 없습니다', 'Image failed to load')}</p>
-                    </div>
-                  ` : ''}
-
-                  ${project.pdfUrl ? `
-                    <div>
-                      <h3 class="text-xl font-semibold mb-3" style="color: ${config.accent_color};">
-                        ${t('프로젝트 문서', 'Project Document')}
-                      </h3>
-                      <div class="border-2 rounded-lg p-4" style="border-color: ${config.primary_color}40;">
-                        <iframe src="${escapeHtml(project.pdfUrl)}" class="w-full rounded" style="height: 600px;"></iframe>
-                      </div>
-                    </div>
-                  ` : ''}
-                </div>
-              </div>
+            <div class="max-w-6xl mx-auto px-6 py-16 text-center">
+              <p class="text-xl" style="color: ${config.primary_color};">${t('로딩 중...', 'Loading...')}</p>
             </div>
           </div>
         `;
       }
 
-      // 프로젝트 목록
       return `
         <div class="w-full min-h-screen">
           ${renderNav()}
@@ -875,25 +337,16 @@
               <h2 class="text-3xl font-bold mb-4 text-white">
                 ${t('프로젝트', 'Projects')}
               </h2>
-              <p class="text-lg text-white opacity-90">
-                ${t('진행 중이거나 완료된 수질 관련 연구 프로젝트를 소개합니다', 'Introducing ongoing and completed water quality research projects')}
-              </p>
             </div>
           </div>
 
           <div class="max-w-6xl mx-auto px-6 py-16">
-            <div class="mb-8 flex justify-end">
-              <button onclick="showNewProjectForm()" class="px-6 py-3 rounded-lg transition shadow font-semibold" style="background: ${config.button_color}; color: white;">
-                ✏️ ${t('글쓰기', 'Write New')}
-              </button>
-            </div>
-
             <div class="space-y-4">
               ${projects.map(project => `
-                <div onclick="viewProjectDetail('${project.id}')" class="rounded-2xl shadow-lg p-6 cursor-pointer hover:shadow-xl transition slide-in" style="background: ${config.surface_color};">
+                <div onclick="viewProjectDetail('${project.id}')" class="rounded-2xl shadow-lg p-6 cursor-pointer hover:shadow-xl transition" style="background: ${config.surface_color};">
                   <div class="flex justify-between items-center">
                     <div class="flex items-center gap-4 flex-1">
-                      <span class="px-3 py-1 rounded-full text-sm font-semibold whitespace-nowrap" style="background: ${project.status === 'completed' ? '#10b981' : '#f59e0b'}20; color: ${project.status === 'completed' ? '#10b981' : '#f59e0b'};">
+                      <span class="px-3 py-1 rounded-full text-sm font-semibold" style="background: ${project.status === 'completed' ? '#10b981' : '#f59e0b'}20; color: ${project.status === 'completed' ? '#10b981' : '#f59e0b'};">
                         ${project.status === 'completed' ? t('완료', 'Completed') : t('진행중', 'Ongoing')}
                       </span>
                       <h3 class="text-2xl font-bold" style="color: ${config.primary_color};">
@@ -901,9 +354,9 @@
                       </h3>
                     </div>
                     <div class="flex gap-6 items-center">
-                      <span class="text-base" style="color: ${config.text_color};">👤 ${escapeHtml(project.author)}</span>
-                      <span class="text-base" style="color: ${config.text_color};">📅 ${escapeHtml(project.date)}</span>
-                      <span class="text-base" style="color: ${config.text_color};">👁️ ${project.views}</span>
+                      <span class="text-base">👤 ${escapeHtml(project.author)}</span>
+                      <span class="text-base">📅 ${escapeHtml(project.date)}</span>
+                      <span class="text-base">👁️ ${project.views}</span>
                     </div>
                   </div>
                 </div>
@@ -920,331 +373,25 @@
         <div class="w-full min-h-screen">
           ${renderNav()}
           
-          <!-- Hero Section -->
           <div class="w-full py-20" style="background: linear-gradient(135deg, ${config.primary_color}, ${config.accent_color});">
             <div class="max-w-6xl mx-auto px-6 text-center">
               <h2 class="text-4xl font-bold mb-4 text-white">
                 ${t('문의하기', 'Contact Us')}
               </h2>
-              <p class="text-lg text-white opacity-90">
-                ${t('연구 협력 및 기술 문의를 환영합니다', 'We welcome research collaboration and technical inquiries')}
-              </p>
             </div>
           </div>
 
-          <div class="max-w-7xl mx-auto px-6 py-16">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-12">
-              <!-- Contact Information -->
-              <div>
-                <h3 class="text-3xl font-bold mb-8" style="color: ${config.primary_color};">
-                  ${t('연락처 정보', 'Contact Information')}
-                </h3>
-                
-                <div class="space-y-6 mb-10">
-                  <div class="flex gap-4 p-6 rounded-xl shadow-lg" style="background: ${config.surface_color};">
-                    <div class="flex-shrink-0">
-                      <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: ${config.primary_color};">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h4 class="font-bold mb-2 text-lg" style="color: ${config.text_color};">
-                        ${t('주소', 'Address')}
-                      </h4>
-                      <p style="color: ${config.text_color}; opacity: 0.8;">
-                        ${t('서울특별시 강남구 테헤란로 123', '123 Teheran-ro, Gangnam-gu, Seoul')}<br>
-                        ${t('Water Solution 연구소 본관 5층', 'Water Solution Research Institute, Main Building 5F')}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div class="flex gap-4 p-6 rounded-xl shadow-lg" style="background: ${config.surface_color};">
-                    <div class="flex-shrink-0">
-                      <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: ${config.primary_color};">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h4 class="font-bold mb-2 text-lg" style="color: ${config.text_color};">
-                        ${t('전화', 'Phone')}
-                      </h4>
-                      <p style="color: ${config.text_color}; opacity: 0.8;">
-                        ${t('대표전화', 'Main')}: +82-2-1234-5678<br>
-                        ${t('팩스', 'Fax')}: +82-2-1234-5679
-                      </p>
-                    </div>
-                  </div>
-
-                  <div class="flex gap-4 p-6 rounded-xl shadow-lg" style="background: ${config.surface_color};">
-                    <div class="flex-shrink-0">
-                      <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: ${config.primary_color};">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h4 class="font-bold mb-2 text-lg" style="color: ${config.text_color};">
-                        ${t('이메일', 'Email')}
-                      </h4>
-                      <p style="color: ${config.text_color}; opacity: 0.8;">
-                        ${t('일반 문의', 'General')}: contact@watersolution.org<br>
-                        ${t('연구 협력', 'Research')}: research@watersolution.org
-                      </p>
-                    </div>
-                  </div>
-
-                  <div class="flex gap-4 p-6 rounded-xl shadow-lg" style="background: ${config.surface_color};">
-                    <div class="flex-shrink-0">
-                      <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: ${config.primary_color};">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h4 class="font-bold mb-2 text-lg" style="color: ${config.text_color};">
-                        ${t('운영 시간', 'Business Hours')}
-                      </h4>
-                      <p style="color: ${config.text_color}; opacity: 0.8;">
-                        ${t('평일', 'Weekdays')}: 09:00 - 18:00<br>
-                        ${t('주말 및 공휴일 휴무', 'Closed on weekends and holidays')}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Quick Links -->
-                <div class="rounded-xl shadow-lg p-6" style="background: linear-gradient(135deg, ${config.primary_color}10, ${config.accent_color}10);">
-                  <h4 class="font-bold mb-4 text-xl" style="color: ${config.primary_color};">
-                    ${t('바로가기', 'Quick Links')}
-                  </h4>
-                  <div class="space-y-2">
-                    <button onclick="navigateTo('research_areas')" class="w-full text-left px-4 py-3 rounded-lg hover:shadow transition" style="background: ${config.surface_color}; color: ${config.text_color};">
-                      📚 ${t('연구 분야 보기', 'View Research Areas')}
-                    </button>
-                    <button onclick="navigateTo('projects')" class="w-full text-left px-4 py-3 rounded-lg hover:shadow transition" style="background: ${config.surface_color}; color: ${config.text_color};">
-                      📊 ${t('프로젝트 보기', 'View Projects')}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Contact Form -->
-              <div>
-                <div class="rounded-xl shadow-lg p-8" style="background: ${config.surface_color};">
-                  <h3 class="text-3xl font-bold mb-6" style="color: ${config.primary_color};">
-                    ${t('온라인 문의', 'Online Inquiry')}
-                  </h3>
-                  
-                  <form onsubmit="handleContactSubmit(event)" class="space-y-6">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                          ${t('이름', 'Name')} *
-                        </label>
-                        <input type="text" required class="w-full px-4 py-3 rounded-lg border-2" style="border-color: ${config.primary_color}40;" placeholder="${t('홍길동', 'John Doe')}">
-                      </div>
-                      <div>
-                        <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                          ${t('소속', 'Organization')}
-                        </label>
-                        <input type="text" class="w-full px-4 py-3 rounded-lg border-2" style="border-color: ${config.primary_color}40;" placeholder="${t('소속 기관', 'Your Organization')}">
-                      </div>
-                    </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                          ${t('이메일', 'Email')} *
-                        </label>
-                        <input type="email" required class="w-full px-4 py-3 rounded-lg border-2" style="border-color: ${config.primary_color}40;" placeholder="example@email.com">
-                      </div>
-                      <div>
-                        <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                          ${t('전화번호', 'Phone')}
-                        </label>
-                        <input type="tel" class="w-full px-4 py-3 rounded-lg border-2" style="border-color: ${config.primary_color}40;" placeholder="010-1234-5678">
-                      </div>
-                    </div>
-
-                    <div>
-                      <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                        ${t('문의 유형', 'Inquiry Type')} *
-                      </label>
-                      <select required class="w-full px-4 py-3 rounded-lg border-2" style="border-color: ${config.primary_color}40;">
-                        <option value="">${t('선택해주세요', 'Please select')}</option>
-                        <option value="research">${t('연구 협력', 'Research Collaboration')}</option>
-                        <option value="technical">${t('기술 문의', 'Technical Inquiry')}</option>
-                        <option value="partnership">${t('파트너십', 'Partnership')}</option>
-                        <option value="other">${t('기타', 'Other')}</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                        ${t('제목', 'Subject')} *
-                      </label>
-                      <input type="text" required class="w-full px-4 py-3 rounded-lg border-2" style="border-color: ${config.primary_color}40;" placeholder="${t('문의 제목을 입력하세요', 'Enter inquiry subject')}">
-                    </div>
-
-                    <div>
-                      <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                        ${t('문의 내용', 'Message')} *
-                      </label>
-                      <textarea rows="6" required class="w-full px-4 py-3 rounded-lg border-2" style="border-color: ${config.primary_color}40;" placeholder="${t('문의 내용을 상세히 입력해주세요', 'Please enter your message in detail')}"></textarea>
-                    </div>
-
-                    <div class="flex items-start gap-2">
-                      <input type="checkbox" id="privacy-check" required class="mt-1">
-                      <label for="privacy-check" class="text-sm" style="color: ${config.text_color};">
-                        ${t('개인정보 수집 및 이용에 동의합니다', 'I agree to the collection and use of personal information')}
-                      </label>
-                    </div>
-
-                    <button type="submit" class="w-full py-4 rounded-lg transition shadow-lg font-bold text-lg hover:shadow-xl" style="background: ${config.button_color}; color: white;">
-                      ${t('문의 보내기', 'Send Inquiry')}
-                    </button>
-                  </form>
-
-                  <p class="mt-6 text-sm text-center opacity-70" style="color: ${config.text_color};">
-                    ${t('영업일 기준 1-2일 내에 답변드리겠습니다', 'We will respond within 1-2 business days')}
-                  </p>
-                </div>
-              </div>
+          <div class="max-w-4xl mx-auto px-6 py-16">
+            <div class="rounded-xl shadow-lg p-8" style="background: ${config.surface_color};">
+              <h3 class="text-2xl font-bold mb-6" style="color: ${config.primary_color};">
+                Email: contact@watersolution.org
+              </h3>
+              <p>Phone: +82-2-1234-5678</p>
             </div>
           </div>
         </div>
       `;
     }
-
-    // ========== Handle Contact Form ==========
-    window.handleContactSubmit = function(event) {
-      event.preventDefault();
-      showToast(t('문의가 접수되었습니다. 빠른 시일 내에 답변드리겠습니다.', 'Your inquiry has been received. We will respond shortly.'), 'success');
-      event.target.reset();
-    };
-
-    // ========== Project Form Functions ==========
-    window.showNewProjectForm = function() {
-      const modal = document.createElement('div');
-      modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50';
-      modal.innerHTML = `
-        <div class="rounded-2xl shadow-2xl p-8 max-w-3xl w-full max-h-[90vh] overflow-y-auto" style="background: ${config.surface_color};">
-          <h2 class="text-3xl font-bold mb-6" style="color: ${config.primary_color};">
-            ${t('새 프로젝트 작성', 'Write New Project')}
-          </h2>
-          
-          <form id="new-project-form" class="space-y-6">
-            <div>
-              <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                ${t('제목', 'Title')} *
-              </label>
-              <input type="text" id="new-project-title" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">
-            </div>
-
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                  ${t('작성자', 'Author')} *
-                </label>
-                <input type="text" id="new-project-author" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">
-              </div>
-
-              <div>
-                <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                  ${t('날짜', 'Date')} *
-                </label>
-                <input type="date" id="new-project-date" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;" value="${new Date().toISOString().split('T')[0]}">
-              </div>
-            </div>
-
-            <div>
-              <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                ${t('상태', 'Status')} *
-              </label>
-              <select id="new-project-status" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">
-                <option value="ongoing">${t('진행중', 'Ongoing')}</option>
-                <option value="completed">${t('완료', 'Completed')}</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                ${t('내용', 'Content')} *
-              </label>
-              <textarea id="new-project-content" rows="8" required class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;"></textarea>
-            </div>
-
-            <div>
-              <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                ${t('이미지 URL (선택)', 'Image URL (Optional)')}
-              </label>
-              <input type="url" id="new-project-image" class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">
-            </div>
-
-            <div>
-              <label class="block mb-2 font-semibold" style="color: ${config.text_color};">
-                ${t('PDF URL (선택)', 'PDF URL (Optional)')}
-              </label>
-              <input type="url" id="new-project-pdf" class="w-full px-4 py-2 rounded-lg border-2" style="border-color: ${config.primary_color}40;">
-            </div>
-
-            <div class="flex gap-3 justify-end pt-4">
-              <button type="button" onclick="this.closest('.fixed').remove()" class="px-6 py-3 rounded-lg transition" style="background: #9ca3af; color: white;">
-                ${t('취소', 'Cancel')}
-              </button>
-              <button type="submit" class="px-6 py-3 rounded-lg transition shadow font-semibold" style="background: ${config.button_color}; color: white;">
-                ${t('저장하기', 'Save')}
-              </button>
-            </div>
-          </form>
-        </div>
-      `;
-      
-      modal.querySelector('#new-project-form').addEventListener('submit', (e) => {
-        e.preventDefault();
-        
-        const newProject = {
-          id: 'proj_' + Date.now(),
-          title: document.getElementById('new-project-title').value,
-          author: document.getElementById('new-project-author').value,
-          date: document.getElementById('new-project-date').value,
-          views: 0,
-          status: document.getElementById('new-project-status').value,
-          content: document.getElementById('new-project-content').value,
-          imageUrl: document.getElementById('new-project-image').value.trim(),
-          pdfUrl: document.getElementById('new-project-pdf').value.trim()
-        };
-        
-        projects.unshift(newProject);
-        modal.remove();
-        showToast(t('프로젝트가 저장되었습니다', 'Project has been saved'), 'success');
-        render();
-      });
-      
-      document.body.appendChild(modal);
-    };
-
-    window.saveProjectEdit = function(event, projectId) {
-      event.preventDefault();
-      
-      const projectIndex = projects.findIndex(p => p.id === projectId);
-      if (projectIndex === -1) return;
-      
-      projects[projectIndex] = {
-        ...projects[projectIndex],
-        title: document.getElementById('edit-project-title').value,
-        author: document.getElementById('edit-project-author').value,
-        date: document.getElementById('edit-project-date').value,
-        views: parseInt(document.getElementById('edit-project-views').value) || 0,
-        status: document.getElementById('edit-project-status').value,
-        content: document.getElementById('edit-project-content').value,
-        imageUrl: document.getElementById('edit-project-image').value.trim(),
-        pdfUrl: document.getElementById('edit-project-pdf').value.trim()
-      };
-
-      showToast(t('변경사항이 저장되었습니다', 'Changes have been saved'), 'success');
-      editingProject = false;
-      render();
-    };
 
     // ========== Main Render Function ==========
     function render() {
@@ -1252,8 +399,6 @@
       
       if (currentView === 'home') {
         app.innerHTML = renderHomePage();
-      } else if (currentView === 'research_areas') {
-        app.innerHTML = renderResearchAreasPage();
       } else if (currentView === 'projects') {
         app.innerHTML = renderProjectsPage();
       } else if (currentView === 'contact') {
@@ -1262,7 +407,7 @@
     }
 
     // ========== Initialize ==========
-    render();
+    loadProjects().then(() => render());
   </script>
 </body>
 </html>
