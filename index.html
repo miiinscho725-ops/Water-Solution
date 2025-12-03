@@ -35,6 +35,8 @@
       }
     }
   </style>
+
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 </head>
 <body class="bg-gradient-to-br from-blue-50 via-white to-emerald-50">
   <div id="app"></div>
@@ -43,6 +45,8 @@
 
     const SUPABASE_URL = 'https://bpwjkgrmzpxppubjaisz.supabase.co';  // 1-4단계에서 복사한 URL
     const SUPABASE_ANON_KEY = 'sb_publishable_6lO03_v4mOOTHC4xG4RqQA_2MXt8RVE'; // 1-4단계에서 복사한 Key
+    
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // ========== Configuration ==========
     const config = {
@@ -1203,7 +1207,7 @@
         </div>
       `;
       
-      modal.querySelector('#new-project-form').addEventListener('submit', (e) => {
+           modal.querySelector('#new-project-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         
         const newProject = {
@@ -1217,8 +1221,43 @@
           imageUrl: document.getElementById('new-project-image').value.trim(),
           pdfUrl: document.getElementById('new-project-pdf').value.trim()
         };
-        
-        projects.unshift(newProject);
+
+        // Supabase에 저장
+        const { data, error } = await supabase
+          .from('projects')
+          .insert({
+            id: newProject.id,
+            title: newProject.title,
+            author: newProject.author,
+            date: newProject.date,
+            views: newProject.views,
+            status: newProject.status,
+            content: newProject.content,
+            image_url: newProject.imageUrl,
+            pdf_url: newProject.pdfUrl
+          })
+          .select()
+          .single();
+
+        if (error) {
+          console.error('프로젝트 저장 실패:', error);
+          showToast(t('저장 중 오류가 발생했습니다', 'Failed to save project'), 'error');
+          return;
+        }
+
+        // 로컬 state 업데이트 (DB에서 돌아온 값 기준)
+        projects.unshift({
+          id: data.id,
+          title: data.title,
+          author: data.author,
+          date: data.date,
+          views: data.views ?? 0,
+          status: data.status,
+          content: data.content,
+          imageUrl: data.image_url || '',
+          pdfUrl: data.pdf_url || ''
+        });
+
         modal.remove();
         showToast(t('프로젝트가 저장되었습니다', 'Project has been saved'), 'success');
         render();
@@ -1227,28 +1266,91 @@
       document.body.appendChild(modal);
     };
 
-    window.saveProjectEdit = function(event, projectId) {
+        window.saveProjectEdit = async function(event, projectId) {
       event.preventDefault();
       
       const projectIndex = projects.findIndex(p => p.id === projectId);
       if (projectIndex === -1) return;
-      
-      projects[projectIndex] = {
-        ...projects[projectIndex],
+
+      const updated = {
         title: document.getElementById('edit-project-title').value,
         author: document.getElementById('edit-project-author').value,
         date: document.getElementById('edit-project-date').value,
         views: parseInt(document.getElementById('edit-project-views').value) || 0,
         status: document.getElementById('edit-project-status').value,
         content: document.getElementById('edit-project-content').value,
-        imageUrl: document.getElementById('edit-project-image').value.trim(),
-        pdfUrl: document.getElementById('edit-project-pdf').value.trim()
+        image_url: document.getElementById('edit-project-image').value.trim(),
+        pdf_url: document.getElementById('edit-project-pdf').value.trim()
+      };
+
+      const { data, error } = await supabase
+        .from('projects')
+        .update(updated)
+        .eq('id', projectId)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('프로젝트 수정 실패:', error);
+        showToast(t('저장 중 오류가 발생했습니다', 'Failed to save changes'), 'error');
+        return;
+      }
+
+      // 로컬 state 업데이트
+      projects[projectIndex] = {
+        ...projects[projectIndex],
+        title: data.title,
+        author: data.author,
+        date: data.date,
+        views: data.views ?? 0,
+        status: data.status,
+        content: data.content,
+        imageUrl: data.image_url || '',
+        pdfUrl: data.pdf_url || ''
       };
 
       showToast(t('변경사항이 저장되었습니다', 'Changes have been saved'), 'success');
       editingProject = false;
       render();
     };
+
+    // ========== Supabase 에서 프로젝트 불러오기 ==========
+    async function loadProjects() {
+      try {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('*')
+          .order('date', { ascending: false });  // date 컬럼 기준 정렬
+
+        if (error) {
+          console.error('프로젝트 불러오기 실패:', error);
+          // 에러 나면 기존 하드코딩된 projects 그대로 사용
+          render();
+          return;
+        }
+
+        // DB에 데이터가 있으면 그걸로 덮어쓰기
+        if (data && data.length > 0) {
+          projects = data.map(row => ({
+            id: row.id,
+            title: row.title,
+            author: row.author,
+            date: row.date,
+            views: row.views ?? 0,
+            status: row.status,
+            content: row.content,
+            imageUrl: row.image_url || '',
+            pdfUrl: row.pdf_url || ''
+          }));
+        }
+
+        render();
+      } catch (err) {
+        console.error('loadProjects 에러:', err);
+        render();
+      }
+    }
+
 
     // ========== Main Render Function ==========
     function render() {
@@ -1266,7 +1368,7 @@
     }
 
     // ========== Initialize ==========
-    render();
+    loadProjects();
   </script>
 </body>
 </html>
